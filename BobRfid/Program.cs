@@ -1,4 +1,5 @@
 using CsvHelper;
+using DiskQueue;
 using Impinj.OctaneSdk;
 using Newtonsoft.Json;
 using SharpZebra.Printing;
@@ -28,8 +29,9 @@ namespace BobRfid
         static IZebraPrinter printer;
         static BlockingCollection<TagSeen> tagsToProcess = new BlockingCollection<TagSeen>();
         static Queue<Pilot> pendingRegistrations = new Queue<Pilot>();
-        static BlockingCollection<PendingLap> pendingLaps = new BlockingCollection<PendingLap>();
+        static IPersistentQueue<PendingLap> pendingLaps;
         static AppSettings appSettings = new AppSettings();
+        static bool submitting = false;
 
         public static bool RegistrationMode { get; set; } = false;
 
@@ -56,6 +58,8 @@ namespace BobRfid
             Console.WriteLine("BobRfid starting up.");
             //Console.WriteLine($"Args: {string.Join(" ", args)}");
             appSettings.SettingsSaving += AppSettings_SettingsSaving;
+
+            pendingLaps = new PersistentQueue<PendingLap>("pending-laps.queue");
 
             InitializeClient();
 
@@ -128,6 +132,15 @@ namespace BobRfid
                     input = Console.ReadLine().Trim();
                     if (input.Equals("exit", StringComparison.InvariantCultureIgnoreCase))
                     {
+                        if (submitting)
+                        {
+                            while (submitting)
+                            {
+                                Console.WriteLine("Waiting for pending laps to be submitted.");
+                                Thread.Sleep(100);
+                            }
+                        }
+
                         break;
                     }
                     else if (input.Equals("connect", StringComparison.InvariantCultureIgnoreCase))
@@ -569,7 +582,12 @@ namespace BobRfid
                         {
                             var lapTime = seen.TimeStamp - tagStats[seen.Epc].LapStartTime;
                             logger.Info($"Tracking lap for ID '{seen.Epc}' with time '{lapTime}'.");
-                            pendingLaps.Add(new PendingLap { Epc = seen.Epc, LapTime = lapTime, LapId = Guid.NewGuid().ToString() });
+                            using (var session = pendingLaps.OpenSession())
+                            {
+                                session.Enqueue(new PendingLap { Epc = seen.Epc, LapTime = lapTime, LapId = Guid.NewGuid().ToString() });
+                                session.Flush();
+                            }
+
                             tagStats[seen.Epc].LapStartTime = seen.TimeStamp;
                         }
                     }
@@ -587,39 +605,48 @@ namespace BobRfid
 
         private static async Task SubmitLaps()
         {
-            foreach (var pending in pendingLaps.GetConsumingEnumerable())
+            while (true)
             {
-                try
+                using (var session = pendingLaps.OpenSession())
                 {
-                    logger.Info($"Logging lap ID '{pending.LapId}' with time of {pending.LapTime.TotalSeconds} seconds for ID '{pending.Epc}'.");
-                    if (pending.IsRetry)
+                    try
                     {
-                        logger.Trace("Lap submission is a retry.");
+                        var pending = session.Dequeue();
+                        if (pending == null)
+                        {
+                            submitting = false;
+                            await Task.Delay(100);
+                            continue;
+                        }
+
+                        submitting = true;
+
+                        logger.Info($"Logging lap ID '{pending.LapId}' with time of {pending.LapTime.TotalSeconds} seconds for ID '{pending.Epc}'.");
+
+                        var result = await httpClient.PostAsync($"api/v1/lap_track?transponder_token={pending.Epc}&lap_time_in_ms={pending.LapTime.TotalMilliseconds}&lap_id={pending.LapId}", null);
+                        if (result.IsSuccessStatusCode)
+                        {
+                            var lap = JsonConvert.DeserializeObject<PilotRaceLap>(await result.Content.ReadAsStringAsync());
+                            logger.Info($"Successfully logged lap '{lap.LapNum}' time '{TimeSpan.FromMilliseconds(lap.LapTime)}' for '{lap.Pilot.Name}' with ID '{pending.Epc}'.");
+                            session.Flush();
+                        }
+                        else
+                        {
+                            throw new TrackingFailedException($"Failed to log lap time of {pending.LapTime.TotalSeconds} seconds for ID '{pending.Epc}'. Full error: {await result.Content.ReadAsStringAsync()}");
+                        }
+                    }
+                    catch (TrackingFailedException ex)
+                    {
+                        logger.Error(ex);
+                        session.Flush();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Error(ex);
                     }
 
-                    var result = await httpClient.PostAsync($"api/v1/lap_track?transponder_token={pending.Epc}&lap_time_in_ms={pending.LapTime.TotalMilliseconds}&lap_id={pending.LapId}", null);
-                    if (result.IsSuccessStatusCode)
-                    {
-                        var lap = JsonConvert.DeserializeObject<PilotRaceLap>(await result.Content.ReadAsStringAsync());
-                        logger.Info($"Successfully logged lap '{lap.LapNum}' time '{TimeSpan.FromMilliseconds(lap.LapTime)}' for '{lap.Pilot.Name}' with ID '{pending.Epc}'.");
-                    }
-                    else
-                    {
-                        throw new TrackingFailedException($"Failed to log lap time of {pending.LapTime.TotalSeconds} seconds for ID '{pending.Epc}'. Full error: {await result.Content.ReadAsStringAsync()}");
-                    }
+                    await Task.Delay(100);
                 }
-                catch (TrackingFailedException ex)
-                {
-                    logger.Error(ex);
-                }
-                catch (Exception ex)
-                {
-                    pending.IsRetry = true;
-                    logger.Error(ex);
-                    pendingLaps.Add(pending);
-                }
-
-                await Task.Delay(100);
             }
         }
 
