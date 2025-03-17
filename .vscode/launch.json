@@ -6,7 +6,7 @@
    "configurations": [
         {
             "name": ".NET Launch",
-            "type": "clr",
+            "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
             // If you have changed target frameworks, make sure to update the program path.
@@ -20,7 +20,7 @@
         },
         {
             "name": ".NET Attach",
-            "type": "clr",
+            "type": "coreclr",
             "request": "attach",
             "processId": "${command:pickProcess}"
         }

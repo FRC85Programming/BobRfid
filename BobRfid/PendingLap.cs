@@ -7,5 +7,6 @@ namespace BobRfid
         public string Epc { get; set; }
         public TimeSpan LapTime { get; set; }
         public bool IsRetry { get; set; } = false;
+        public string LapId { get; set; }
     }
 }

@@ -54,6 +54,7 @@ namespace BobRfid
         static void Main(string[] args)
         {
             Console.WriteLine("BobRfid starting up.");
+            //Console.WriteLine($"Args: {string.Join(" ", args)}");
             appSettings.SettingsSaving += AppSettings_SettingsSaving;
 
             InitializeClient();
@@ -65,6 +66,8 @@ namespace BobRfid
             else
             {
                 reader = new RealReader();
+                Console.WriteLine($"Waiting {appSettings.StartupDelaySeconds} seconds for reader to start up.");
+                Thread.Sleep(TimeSpan.FromSeconds(appSettings.StartupDelaySeconds));
             }
 
             if (args.Length > 0 && args.Contains("--register"))
@@ -99,9 +102,6 @@ namespace BobRfid
             }
 
             Task.Run(() => SubmitLaps());
-
-            Console.WriteLine($"Waiting {appSettings.StartupDelaySeconds} seconds for reader to start up.");
-            Thread.Sleep(TimeSpan.FromSeconds(appSettings.StartupDelaySeconds));
 
             try
             {
@@ -149,6 +149,25 @@ namespace BobRfid
                         {
                             appSettings.ServiceBaseAddress = $"http://legsofsteel.bob85.com/{newInstance}/";
                             appSettings.Save();
+                        }
+                    }
+                    else if (input.Equals("uri", StringComparison.InvariantCultureIgnoreCase))
+                    {
+                        Console.WriteLine($"Currently connecting to '{appSettings.ServiceBaseAddress}'.");
+                        Console.Write("New URI (blank to leave unchanged):> ");
+                        var newUri = Console.ReadLine().Trim();
+                        if (!string.IsNullOrWhiteSpace(newUri))
+                        {
+                            if (Uri.TryCreate(newUri, UriKind.Absolute, out Uri result))
+                            {
+                                Console.WriteLine("Valid URI. Saving.");
+                                appSettings.ServiceBaseAddress = newUri;
+                                appSettings.Save();
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Invalid URI: {newUri}");
+                            }
                         }
                     }
                     else if (input.Equals("timeout", StringComparison.InvariantCultureIgnoreCase))
@@ -550,7 +569,7 @@ namespace BobRfid
                         {
                             var lapTime = seen.TimeStamp - tagStats[seen.Epc].LapStartTime;
                             logger.Info($"Tracking lap for ID '{seen.Epc}' with time '{lapTime}'.");
-                            pendingLaps.Add(new PendingLap { Epc = seen.Epc, LapTime = lapTime });
+                            pendingLaps.Add(new PendingLap { Epc = seen.Epc, LapTime = lapTime, LapId = Guid.NewGuid().ToString() });
                             tagStats[seen.Epc].LapStartTime = seen.TimeStamp;
                         }
                     }
@@ -572,13 +591,13 @@ namespace BobRfid
             {
                 try
                 {
-                    logger.Info($"Logging lap time of {pending.LapTime.TotalSeconds} seconds for ID '{pending.Epc}'.");
+                    logger.Info($"Logging lap ID '{pending.LapId}' with time of {pending.LapTime.TotalSeconds} seconds for ID '{pending.Epc}'.");
                     if (pending.IsRetry)
                     {
                         logger.Trace("Lap submission is a retry.");
                     }
 
-                    var result = await httpClient.PostAsync($"api/v1/lap_track?transponder_token={pending.Epc}&lap_time_in_ms={pending.LapTime.TotalMilliseconds}", null);
+                    var result = await httpClient.PostAsync($"api/v1/lap_track?transponder_token={pending.Epc}&lap_time_in_ms={pending.LapTime.TotalMilliseconds}&lap_id={pending.LapId}", null);
                     if (result.IsSuccessStatusCode)
                     {
                         var lap = JsonConvert.DeserializeObject<PilotRaceLap>(await result.Content.ReadAsStringAsync());
