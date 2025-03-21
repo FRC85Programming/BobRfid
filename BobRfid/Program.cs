@@ -59,7 +59,16 @@ namespace BobRfid
             //Console.WriteLine($"Args: {string.Join(" ", args)}");
             appSettings.SettingsSaving += AppSettings_SettingsSaving;
 
-            pendingLaps = new PersistentQueue<PendingLap>("pending-laps.queue");
+            PersistentQueue.DefaultSettings.AllowTruncatedEntries = true;
+            PersistentQueue.DefaultSettings.ParanoidFlushing = true;
+            var lockFileName = Path.Combine("pending-laps.queue", "lock");
+            if (File.Exists(lockFileName))
+            {
+                logger.Warn($"Deleting file '{lockFileName}'.");
+                File.Delete(lockFileName);
+            }
+
+            pendingLaps = PersistentQueue.WaitFor<PendingLap>("pending-laps.queue", TimeSpan.FromSeconds(5));
 
             InitializeClient();
 
@@ -128,6 +137,11 @@ namespace BobRfid
                 Console.WriteLine("Type 'exit' to stop.");
                 while (true)
                 {
+                    if (pendingLaps.EstimatedCountOfItemsInQueue > 0)
+                    {
+                        Console.WriteLine($"Estimated laps in queue: {pendingLaps.EstimatedCountOfItemsInQueue}");
+                    }
+
                     Console.Write("BobRfid:> ");
                     input = Console.ReadLine().Trim();
                     if (input.Equals("exit", StringComparison.InvariantCultureIgnoreCase))
@@ -140,6 +154,8 @@ namespace BobRfid
                                 Thread.Sleep(100);
                             }
                         }
+
+                        pendingLaps.Dispose();
 
                         break;
                     }
@@ -233,6 +249,10 @@ namespace BobRfid
                     else if (reader is FakeReader)
                     {
                         ((FakeReader)reader).SendCommand(input);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Unknown command '{input}'.");
                     }
                 }
             }
@@ -605,6 +625,7 @@ namespace BobRfid
 
         private static async Task SubmitLaps()
         {
+            logger.Info($"Starting submit thread...");
             while (true)
             {
                 using (var session = pendingLaps.OpenSession())
