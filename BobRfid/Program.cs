@@ -588,17 +588,19 @@ namespace BobRfid
                 {
                     try
                     {
+                        bool firstLap = false;
                         if (!tagStats.ContainsKey(seen.Epc))
                         {
                             tagStats[seen.Epc] = new TagStats();
                             tagStats[seen.Epc].TimeStamp = seen.TimeStamp;
                             tagStats[seen.Epc].LapStartTime = seen.TimeStamp;
                             logger.Info($"Started tracking first lap for ID '{seen.Epc}'.");
+                            firstLap = true;
                         }
 
                         tagStats[seen.Epc].LastReport = seen.Tag;
                         tagStats[seen.Epc].Count++;
-                        if (seen.TimeStamp > tagStats[seen.Epc].TimeStamp.AddSeconds(MIN_LAP_SECONDS))
+                        if (seen.TimeStamp > tagStats[seen.Epc].TimeStamp.AddSeconds(MIN_LAP_SECONDS) || (firstLap && Properties.Settings.Default.CountFirstLapAtFirstRead))
                         {
                             var lapTime = seen.TimeStamp - tagStats[seen.Epc].LapStartTime;
                             logger.Info($"Tracking lap for ID '{seen.Epc}' with time '{lapTime}'.");

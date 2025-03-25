@@ -70,5 +70,17 @@ namespace BobRfid {
                 this["StartupDelaySeconds"] = value;
             }
         }
+
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("true")]
+        public bool CountFirstLapAtFirstRead {
+            get {
+                return ((bool)(this["CountFirstLapAtFirstRead"]));
+            }
+            set {
+                this["CountFirstLapAtFirstRead"] = value;
+            }
+        }
     }
 }
