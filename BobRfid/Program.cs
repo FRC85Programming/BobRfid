@@ -600,7 +600,7 @@ namespace BobRfid
 
                         tagStats[seen.Epc].LastReport = seen.Tag;
                         tagStats[seen.Epc].Count++;
-                        if (seen.TimeStamp > tagStats[seen.Epc].TimeStamp.AddSeconds(MIN_LAP_SECONDS) || (firstLap && Properties.Settings.Default.CountFirstLapAtFirstRead))
+                        if (seen.TimeStamp > tagStats[seen.Epc].TimeStamp.AddSeconds(MIN_LAP_SECONDS) || (firstLap && appSettings.CountFirstLapAtFirstRead))
                         {
                             var lapTime = seen.TimeStamp - tagStats[seen.Epc].LapStartTime;
                             logger.Info($"Tracking lap for ID '{seen.Epc}' with time '{lapTime}'.");
