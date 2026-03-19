@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <DebugType>portable</DebugType>
     <UseWindowsForms>false</UseWindowsForms>
@@ -11,7 +11,9 @@
   <ItemGroup>
     <PackageReference Include="CsvHelper" Version="33.0.1" />
     <PackageReference Include="DebounceThrottle" Version="3.0.1" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Google.Cloud.Logging.Type" Version="4.3.0" />
+    <PackageReference Include="Google.Cloud.Logging.V2" Version="4.5.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="NLog" Version="5.4.0" />
     <PackageReference Include="OctaneSDK" Version="5.0.0" />
     <PackageReference Include="SharpZebraStandard" Version="1.1.0" />

@@ -1,4 +1,7 @@
 using CsvHelper;
+using Google.Api;
+using Google.Cloud.Logging.V2;
+using Google.Cloud.Logging.Type;
 using Impinj.OctaneSdk;
 using Newtonsoft.Json;
 using SharpZebra.Printing;
@@ -18,6 +21,8 @@ namespace BobRfid
     {
         private const int MIN_LAP_SECONDS = 30;
 
+        private const string PROJECT_ID = "bobtracker-fa25c";
+
         static NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
         static IReader reader;
         static ConcurrentDictionary<string, TagStats> tagStats = new ConcurrentDictionary<string, TagStats>();
@@ -30,6 +35,10 @@ namespace BobRfid
         static Queue<Pilot> pendingRegistrations = new Queue<Pilot>();
         static BlockingCollection<PendingLap> pendingLaps = new BlockingCollection<PendingLap>();
         static AppSettings appSettings = new AppSettings();
+
+        private static LoggingServiceV2Client loggingClient;
+        private static LogName logName;
+        private static MonitoredResource logResource;
 
         public static bool RegistrationMode { get; set; } = false;
 
@@ -51,8 +60,12 @@ namespace BobRfid
         ///  The main entry point for the application.
         /// </summary>
         [STAThread]
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
+            loggingClient = await LoggingServiceV2Client.CreateAsync();
+            logName = new LogName(PROJECT_ID, "error-log"); // Custom log name
+            logResource = new MonitoredResource { Type = "global" };
+
             Console.WriteLine("BobRfid starting up.");
             appSettings.SettingsSaving += AppSettings_SettingsSaving;
 
@@ -337,7 +350,7 @@ namespace BobRfid
         {
             Console.WriteLine($"Connecting to reader at '{appSettings.ReaderIpAddress}'.");
             reader.Connect(appSettings.ReaderIpAddress);
-            Settings settings = reader.QueryDefaultSettings();
+            var settings = reader.QueryDefaultSettings();
 
             // Start the reader as soon as it's configured.
             // This will allow it to run without a client connected.
@@ -556,7 +569,20 @@ namespace BobRfid
                     }
                     catch (Exception ex)
                     {
-                        logger.Error(ex, $"Error tracking tag '{seen.Epc}': {ex}");
+                        var message = $"Error tracking tag '{seen.Epc}': {ex}";
+                        logger.Error(ex, message);
+                        var logEntry = new LogEntry
+                        {
+                            TextPayload = message,
+                            Severity = LogSeverity.Error,
+                            LogName = logName.ToString(),
+                        };
+
+                        _ = loggingClient.WriteLogEntriesAsync(
+                            logName: logName.ToString(),
+                            resource: logResource,
+                            labels: null,
+                            entries: new[] { logEntry });
                     }
                     finally
                     {
